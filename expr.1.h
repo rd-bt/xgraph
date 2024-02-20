@@ -87,32 +87,3 @@ union expr_double {
 	struct expr_rawdouble rd;
 };
 
-void expr_memrand(void *restrict m,size_t n);
-double expr_and2(double a,double b);
-double expr_rand12(void);
-const char *expr_error(int error);
-void expr_free(struct expr *restrict ep);
-void expr_addcall(struct expr *restrict ep,double *dst,double (*func)(double));
-void expr_addcallmd(struct expr *restrict ep,double *dst,struct expr_mdinfo *em);
-void expr_addsumop(struct expr *restrict ep,double *dst,struct expr_suminfo *es,unsigned int op);
-void expr_addop(struct expr *restrict ep,double *dst,double *src,unsigned int op);
-double *expr_newvar(struct expr *restrict ep);
-void expr_symset_add4(struct expr_symset *restrict ep,const char *sym,void *addr,int type,int dim);
-void expr_symset_add(struct expr_symset *restrict ep,const char *sym,void *addr,int type);
-struct expr_symset *expr_symset_clone(struct expr_symset *restrict ep);
-struct expr_symset *new_expr_symset(void);
-void expr_symset_free(struct expr_symset *restrict esp);
-struct expr *new_expr(const char *e,const char *asym,struct expr_symset *esp,int *error);
-double expr_compute(struct expr *restrict ep,double input);
-
-#define expr_addcopy(e,t,f) expr_addop(e,t,f,EXPR_COPY)
-#define expr_addadd(e,t,f) expr_addop(e,t,f,EXPR_ADD)
-#define expr_addsub(e,t,f) expr_addop(e,t,f,EXPR_SUB)
-#define expr_addmul(e,t,f) expr_addop(e,t,f,EXPR_MUL)
-#define expr_adddiv(e,t,f) expr_addop(e,t,f,EXPR_DIV)
-#define expr_addpow(e,t,f) expr_addop(e,t,f,EXPR_POW)
-#define expr_addneg(e,t) expr_addop(e,t,NULL,EXPR_NEG)
-#define expr_addsum(e,t,es) expr_addsumop(e,t,es,EXPR_SUM)
-#define expr_addint(e,t,es) expr_addsumop(e,t,es,EXPR_INT)
-#define expr_addend(e,t) expr_addop(e,t,NULL,EXPR_END)
-#endif
