@@ -705,8 +705,8 @@ const struct expr_builtin_keyword expr_keywords[]={
 	REGKEY("lcmn",EXPR_LCMN,5,"index_name,start_index,end_index,index_step,element"),
 	REGKEY("for",EXPR_FOR,5,"var_name,start_var,cond,body,value"),
 	REGKEY("loop",EXPR_LOOP,5,"var_name,start_var,count,body,value"),
-	REGKEY("while",EXPR_WHILE,3,"cond,body,value"),
-	REGKEY("if",EXPR_IF,3,"cond,if_value,else_value"),
+	REGKEY("while",EXPR_KEYWHILE,3,"cond,body,value"),
+	REGKEY("if",EXPR_KEYIF,3,"cond,if_value,else_value"),
 	REGKEY("vmd",EXPR_VMD,7,"index_name,start_index,end_index,index_step,element,md_symbol,max_dim"),
 	{NULL}
 };
@@ -981,12 +981,7 @@ static void expr_freevmdinfo(struct expr_vmdinfo *p){
 		free(p->args);
 	free(p);
 }
-static void expr_freebranchinfo(struct expr_branchinfo *p){
-	expr_free(p->cond);
-	expr_free(p->body);
-	expr_free(p->value);
-	free(p);
-}
+
 static void expr_freemdinfo(struct expr_mdinfo *p){
 	for(size_t i=0;i<p->dim;++i)
 		expr_free(p->eps+i);
@@ -1022,10 +1017,6 @@ void expr_free(struct expr *restrict ep){
 					break;
 				case EXPR_VMD:
 					expr_freevmdinfo(ip->un.ev);
-					break;
-				case EXPR_IF:
-				case EXPR_WHILE:
-					expr_freebranchinfo(ip->un.eb);
 					break;
 				case EXPR_HOT:
 					expr_free(ip->un.hotfunc);
@@ -1314,6 +1305,7 @@ fail:
 	return NULL;
 }
 
+static double *expr_scan(struct expr *restrict ep,const char *e,const char *endp,const char *asym,size_t asymlen);
 static struct expr_mdinfo *expr_getmdinfo(struct expr *restrict ep,const char *e0,size_t sz,const char *e,size_t esz,const char *asym,void *func,size_t dim,int ifep){
 	char **v=expr_sep(ep,e,esz);
 	char **p;
@@ -1488,10 +1480,12 @@ err0:
 	expr_free2(v);
 	return NULL;
 }
-static struct expr_branchinfo *expr_getbranchinfo(struct expr *restrict ep,const char *e0,size_t sz,const char *e,size_t esz,const char *asym){
+static double *expr_getif(struct expr *restrict ep,const char *e0,size_t sz,const char *e,size_t esz,const char *asym,size_t asymlen){
 	char **v=expr_sep(ep,e,esz);
 	char **p;
-	struct expr_branchinfo *eb;
+	struct expr_inst *ip;
+	ssize_t ibz,ib;
+	double *dst,*r;
 	if(!v){
 		return NULL;
 	}
@@ -1504,27 +1498,67 @@ static struct expr_branchinfo *expr_getbranchinfo(struct expr *restrict ep,const
 		ep->error=EXPR_ENEA;
 		goto err0;
 	}
-	eb=xmalloc(sizeof(struct expr_branchinfo));
 //	while(cond,body,value)
-	eb->cond=new_expr(v[0],asym,ep->sset,&ep->error,ep->errinfo);
-	if(!eb->cond)goto err1;
-	eb->body=new_expr(v[1],asym,ep->sset,&ep->error,ep->errinfo);
-	if(!eb->body)goto err2;
-	eb->value=new_expr(v[2],asym,ep->sset,&ep->error,ep->errinfo);
-	if(!eb->value)goto err3;
-	expr_free2(v);
-	return eb;
-err3:
-	expr_free(eb->body);
-err2:
-	expr_free(eb->cond);
-err1:
-	free(eb);
+	r=expr_newvar(ep);
+	dst=expr_scan(ep,v[0],v[0]+strlen(v[0]),asym,asymlen);
+	if(!dst)goto err0;
+	ip=expr_addop(ep,dst,NULL,EXPR_BZ,0);
+	ibz=ip-ep->data;
+	dst=expr_scan(ep,v[1],v[1]+strlen(v[1]),asym,asymlen);
+	if(!dst)goto err0;
+	expr_addcopy(ep,r,dst);
+	ip=expr_addop(ep,(void *)-1,NULL,EXPR_B,0);
+	ib=ip-ep->data;
+	dst=expr_scan(ep,v[2],v[2]+strlen(v[2]),asym,asymlen);
+	if(!dst)goto err0;
+	expr_addcopy(ep,r,dst);
+	expr_addop(ep,(void *)-1,NULL,EXPR_B,0)->un.off=1;
+	ep->data[ib].un.off=ep->size-ib;
+	ep->data[ibz].un.off=ib+1-ibz;
+	return r;
 err0:
 	expr_free2(v);
 	return NULL;
 }
-static double *expr_scan(struct expr *restrict ep,const char *e,const char *endp,const char *asym,size_t asymlen);
+static double *expr_getwhile(struct expr *restrict ep,const char *e0,size_t sz,const char *e,size_t esz,const char *asym,size_t asymlen){
+	char **v=expr_sep(ep,e,esz);
+	char **p;
+	struct expr_inst *ip;
+	ssize_t ibz,ib,istart;
+	double *dst,*dst0;
+	if(!v){
+		return NULL;
+	}
+	p=v;
+	while(*p){
+		++p;
+	}
+	if(p-v!=3){
+		memcpy(ep->errinfo,e0,sz);
+		ep->error=EXPR_ENEA;
+		goto err0;
+	}
+//	while(cond,body,value)
+	istart=ep->size;
+	dst0=expr_scan(ep,v[0],v[0]+strlen(v[0]),asym,asymlen);
+	if(!dst0)goto err0;
+	ip=expr_addop(ep,dst0,NULL,EXPR_BZ,0);
+	ibz=ip-ep->data;
+	dst=expr_scan(ep,v[1],v[1]+strlen(v[1]),asym,asymlen);
+	if(!dst)goto err0;
+	expr_addcopy(ep,dst0,dst);
+	ip=expr_addop(ep,(void *)1,NULL,EXPR_B,0);
+	ib=ip-ep->data;
+	dst=expr_scan(ep,v[2],v[2]+strlen(v[2]),asym,asymlen);
+	if(!dst)goto err0;
+	expr_addop(ep,(void *)1,NULL,EXPR_B,0)->un.off=1;
+	ep->data[ib].un.off=istart-ib;
+	ep->data[ibz].un.off=ib+1-ibz;
+	return dst;
+err0:
+	expr_free2(v);
+	return NULL;
+}
 static double *expr_getvalue(struct expr *restrict ep,const char *e,const char *endp,const char **_p,const char *asym,size_t asymlen){
 	const char *p,*p2;
 	double *v0=NULL;
@@ -1546,7 +1580,6 @@ static double *expr_getvalue(struct expr *restrict ep,const char *e,const char *
 	int type,flag;
 	size_t dim=0;
 	if(*e=='+')++e;
-	//for(;;++e){
 	if(e>=endp)goto eev;
 	switch(*e){
 		case 0:
@@ -1602,11 +1635,15 @@ pterr:
 		e=p;
 		p=expr_findpair(e,endp);
 		if(!p)goto pterr;
-		switch(kp->op){
-			case EXPR_IF:
-			case EXPR_WHILE:
-				un.eb=expr_getbranchinfo(ep,p2,e-p2,e,p-e+1,asym);
-				break;
+		switch((int)kp->op){
+			case EXPR_KEYIF:
+				v0=expr_getif(ep,p2,e-p2,e,p-e+1,asym,asymlen);
+				if(!v0)return NULL;
+				goto branch_ok;
+			case EXPR_KEYWHILE:
+				v0=expr_getwhile(ep,p2,e-p2,e,p-e+1,asym,asymlen);
+				if(!v0)return NULL;
+				goto branch_ok;
 			case EXPR_VMD:
 				un.ev=expr_getvmdinfo(ep,p2,e-p2,e,p-e+1,asym);
 				break;
@@ -1619,6 +1656,7 @@ pterr:
 		}
 		v0=expr_newvar(ep);
 		expr_addop(ep,v0,un.uaddr,kp->op,0);
+branch_ok:
 		e=p+1;
 		goto vend;
 	}
@@ -1745,7 +1783,6 @@ symerr:
 	memcpy(ep->errinfo,e,p-e);
 	ep->error=EXPR_ESYMBOL;
 	return NULL;
-//	}
 vend:
 	if(_p)*_p=e;
 	return v0;
@@ -2360,6 +2397,13 @@ static char *expr_stpcpy_nospace(char *restrict s1,const char *restrict s2){
 	return s1;
 }
 static void expr_optimize(struct expr *restrict ep);
+static int expr_branch(enum expr_op op);
+static void expr_writeaims(struct expr *restrict ep){
+	for(struct expr_inst *ip=ep->data;ip->op!=EXPR_END;++ip){
+		if(!expr_branch(ip->op))continue;
+		ip->un.aim=ip+ip->un.off;
+	}
+}
 int init_expr5(struct expr *restrict ep,const char *e,const char *asym,struct expr_symset *esp,int flag){
 	double *p;
 	char *ebuf,*r;
@@ -2391,6 +2435,7 @@ int init_expr5(struct expr *restrict ep,const char *e,const char *asym,struct ex
 	}
 	if(!(flag&EXPR_IF_NOOPTIMIZE))
 		expr_optimize(ep);
+	expr_writeaims(ep);
 	if(flag&EXPR_IF_INSTANT_FREE)
 		expr_free(ep);
 	return 0;
@@ -2453,8 +2498,26 @@ static void expr_writeconsts(struct expr *restrict ep){
 		}
 	}
 }
+
 static void expr_optimize_completed(struct expr *restrict ep){
-	struct expr_inst *cip=ep->data;
+	struct expr_inst *cip;
+	ssize_t n;
+	for(struct expr_inst *ip=ep->data;ip->op!=EXPR_END;++ip){
+		if(!expr_branch(ip->op)||!ip->dst)continue;
+		cip=ip+ip->un.off;
+		n=0;
+		if(cip<ip){
+			for(++cip;cip<ip;++cip){
+				if(!cip->dst)++n;
+			}
+		}else {
+			for(--cip;cip>ip;--cip){
+				if(!cip->dst)--n;
+			}
+		}
+		ip->un.off+=n;
+	}
+	cip=ep->data;
 	for(struct expr_inst *ip=cip;ip-ep->data<ep->size;++ip){
 		if(ip->dst){
 			if(ip>cip)
@@ -2463,6 +2526,13 @@ static void expr_optimize_completed(struct expr *restrict ep){
 		}
 	}
 	ep->size=cip-ep->data;
+}
+static void expr_optimize_b1(struct expr *restrict ep){
+	for(struct expr_inst *ip=ep->data;ip->op!=EXPR_END;++ip){
+		if(!expr_branch(ip->op))continue;
+		if(ip->un.off==1)ip->dst=NULL;
+	}
+	expr_optimize_completed(ep);
 }
 static int expr_modified(const struct expr *restrict ep,double *v){
 	if(!expr_varofep(ep,v))
@@ -2789,6 +2859,16 @@ static void expr_optimize_const(struct expr *restrict ep){
 	}
 	expr_optimize_completed(ep);
 }
+static int expr_branch(enum expr_op op){
+	switch(op){
+		case EXPR_B:
+		case EXPR_BZ:
+		case EXPR_BNZ:
+			return 1;
+		default:
+			return 0;
+	}
+}
 static int expr_side(enum expr_op op){
 	switch(op){
 		case EXPR_COPY:
@@ -2832,8 +2912,6 @@ static int expr_override(enum expr_op op){
 		case EXPR_COPY:
 		case EXPR_INPUT:
 		case EXPR_CONST:
-		case EXPR_IF:
-		case EXPR_WHILE:
 		case EXPR_SUM:
 		case EXPR_INT:
 		case EXPR_PROD:
@@ -2923,18 +3001,12 @@ static int expr_usevmd(enum expr_op op){
 				return 0;
 	}
 }
-static int expr_usebranch(enum expr_op op){
-	switch(op){
-		case EXPR_IF:
-		case EXPR_WHILE:
-				return 1;
-		default:
-				return 0;
-	}
-}
 static int expr_vused(struct expr_inst *ip1,double *v){
 	int ov;
 	for(;;++ip1){
+		if(expr_branch(ip1->op)){
+			return 1;
+		}
 		ov=expr_override(ip1->op);
 		if((expr_usesrc(ip1->op)&&ip1->un.src==v)
 			||(ip1->dst==v&&!ov)
@@ -2964,11 +3036,6 @@ static int expr_vcheck_ep(struct expr_inst *ip0,double *v){
 			expr_vcheck_ep(ip->un.ev->to->data,v)||
 			expr_vcheck_ep(ip->un.ev->step->data,v)||
 			expr_vcheck_ep(ip->un.ev->ep->data,v)
-			))return 1;
-		if(expr_usebranch(ip->op)&&(
-			expr_vcheck_ep(ip->un.eb->cond->data,v)||
-			expr_vcheck_ep(ip->un.eb->body->data,v)||
-			expr_vcheck_ep(ip->un.eb->value->data,v)
 			))return 1;
 		if(expr_usemd(ip->op)){
 			for(size_t i=0;i<ip->un.em->dim;++i){
@@ -3316,7 +3383,7 @@ again:
 		s=ep->size;
 		goto again;
 	}
-
+	expr_optimize_b1(ep);
 }
 __attribute__((noinline))
 static double expr_vmdeval(struct expr_vmdinfo *restrict ev,double input){
@@ -3364,6 +3431,7 @@ double expr_eval(const struct expr *restrict ep,double input){
 	double step,sum,from,to,y;
 	int neg;
 	for(struct expr_inst *ip=ep->data;;++ip){
+direct_continue:
 		assert(ip->op>=EXPR_COPY);
 		assert(ip->op<=EXPR_END);
 		switch(ip->op){
@@ -3505,7 +3573,21 @@ double expr_eval(const struct expr *restrict ep,double input){
 					1.0:
 					0.0;
 				break;
-				
+			case EXPR_B:
+				ip=ip->un.aim;
+				goto direct_continue;
+			case EXPR_BZ:
+				if(fabs(*ip->dst)<=DBL_EPSILON){
+					ip=ip->un.aim;
+					goto direct_continue;
+				}
+				break;
+			case EXPR_BNZ:
+				if(fabs(*ip->dst)>DBL_EPSILON){
+					ip=ip->un.aim;
+					goto direct_continue;
+				}
+				break;
 #define CALSUM(_op,_do,_init,_neg)\
 			case _op :\
 				neg=0;\
@@ -3564,18 +3646,6 @@ double expr_eval(const struct expr *restrict ep,double input){
 					expr_eval(ip->un.es->step,input);//every time
 				}
 				*ip->dst=expr_eval(ip->un.es->ep,input);
-				break;
-			case EXPR_IF:
-				*ip->dst=
-				fabs(expr_eval(ip->un.eb->cond,input))>DBL_EPSILON?
-				expr_eval(ip->un.eb->body,input):
-				expr_eval(ip->un.eb->value,input);
-				break;
-			case EXPR_WHILE:
-				while(fabs(expr_eval(ip->un.eb->cond,input))>DBL_EPSILON)
-				expr_eval(ip->un.eb->body,input);
-				*ip->dst=
-				expr_eval(ip->un.eb->value,input);
 				break;
 			case EXPR_ZA:
 				*ip->dst=ip->un.zafunc();

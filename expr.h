@@ -39,8 +39,9 @@ EXPR_NEG,
 EXPR_NOT,
 EXPR_NOTL,
 EXPR_TSTL,
-EXPR_IF,
-EXPR_WHILE,
+EXPR_B,
+EXPR_BZ,
+EXPR_BNZ,
 EXPR_SUM,
 EXPR_INT,
 EXPR_PROD,
@@ -60,6 +61,9 @@ EXPR_VMD,
 EXPR_HOT,
 EXPR_END
 };
+#define EXPR_KEYIF (-1)
+#define EXPR_KEYWHILE (-2)
+
 #define EXPR_SYMLEN 64
 #ifndef EXPR_SYMNEXT
 #define EXPR_SYMNEXT 14
@@ -102,9 +106,7 @@ struct expr_suminfo {
 	struct expr *from,*to,*step,*ep;
 	volatile double index;
 };
-struct expr_branchinfo {
-	struct expr *cond,*body,*value;
-};
+
 struct expr_mdinfo {
 	struct expr *eps;
 	double *args;
@@ -122,9 +124,12 @@ struct expr_vmdinfo {
 	double *args;
 	volatile double index;
 };
+struct expr_inst;
 union expr_inst_op2{
 	double *src;
 	void *uaddr;
+	struct expr_inst *aim;
+	ssize_t off;
 	double value;
 	struct expr *hotfunc;
 	double (*func)(double);
